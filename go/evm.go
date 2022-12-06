@@ -11,21 +11,73 @@
 package evm
 
 import (
+	"fmt"
 	"math/big"
 )
+
+type FunctionMap map[byte]func(code byte, stack []*big.Int) []*big.Int
+type BytesMap map[byte]int
+
+var funcs FunctionMap
+var bytes BytesMap
+
+// func byteToBigInt(b byte) *[]*big.Int {
+// 	n := new(big.Int)
+// 	n.SetBytes([]byte{b})
+
+// 	numbers := []big.Int{}
+// 	numbers = append(numbers, *n)
+
+// 	return numbers
+// }
+
+// func addToStack(code byte, stack []*big.Int) []*big.Int {
+// 	stackValue := stack[0]
+// }
+
+func Push(code byte, stack []*big.Int) []*big.Int {
+	fmt.Printf("In Push | %d ", code)
+	n := new(big.Int)
+	n.SetBytes([]byte{code})
+	return append(stack, n)
+}
+
+func Stop(code byte, stack []*big.Int) []*big.Int {
+	return stack
+}
 
 // Run runs the EVM code and returns the stack and a success indicator.
 func Evm(code []byte) ([]*big.Int, bool) {
 	var stack []*big.Int
 	pc := 0
+	funcs, bytes = buildMaps()
+	fmt.Printf("Funcs: %T", funcs[96])
 
-	for pc < len(code) {
-		op := code[pc]
+	op := code[pc] // First bytes in code
+	bytesRequired := bytes[op]
+
+	fmt.Printf("\n==================\n")
+	fmt.Printf("%d || %d || %d ", op, code[pc:], bytesRequired)
+	fmt.Printf("\n==================\n")
+
+	pc++
+	for pc <= bytesRequired {
+		val := code[pc]
+		stack = funcs[op](val, stack)
 		pc++
-
-		// TODO: Implement the EVM here!
-		_ = op // delete this; it's only here to make the compiler think you're already using `op`
 	}
-
 	return stack, true
+}
+
+func buildMaps() (FunctionMap, BytesMap) {
+	funcs = make(map[byte]func(code byte, stack []*big.Int) []*big.Int)
+	bytes = make(map[byte]int)
+
+	funcs[0] = Stop
+	bytes[0] = 0
+	funcs[96] = Push
+	bytes[96] = 1
+	funcs[97] = Push
+	bytes[97] = 2
+	return funcs, bytes
 }
