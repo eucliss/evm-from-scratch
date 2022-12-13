@@ -8,9 +8,15 @@
 // - Go to the `go` directory: `cd go`
 // - Edit `evm.go` (this file!), see TODO below
 // - Run `go test ./...` to run the tests
+
+// fmt.Printf("========================\n")
+// fmt.Printf("|| %d  ||  %d  ||  %d  ||\n", var1, var2, c)
+// fmt.Printf("========================")
+
 package evm
 
 import (
+	"fmt"
 	"math"
 	"math/big"
 	"strings"
@@ -78,6 +84,132 @@ func Add(code []byte, stack []*big.Int) []*big.Int {
 	var1 = var1.Add(var1, var2)
 	var1 = overflow(var1)
 	return pushToStack(var1, stack)
+}
+
+func Lt(code []byte, stack []*big.Int) []*big.Int {
+	var (
+		var1 *big.Int
+		var2 *big.Int
+	)
+	var1, stack = popFromStack(code, stack)
+	var2, stack = popFromStack(code, stack)
+	c := var1.Cmp(var2)
+	if c == 1 || c == 0 {
+		return pushToStack(big.NewInt(0), stack)
+	} else {
+		return pushToStack(big.NewInt(1), stack)
+	}
+}
+
+func SLt(code []byte, stack []*big.Int) []*big.Int {
+	var (
+		var1     *big.Int
+		var2     *big.Int
+		var1Sign bool // Negative true or false
+		var2Sign bool
+	)
+	var1Sign = false
+	var2Sign = false
+	var1, stack = popFromStack(code, stack)
+	var2, stack = popFromStack(code, stack)
+
+	if isNegative(var1) {
+		var1Sign = true
+		var1 = twosComplement(var1)
+	}
+
+	if isNegative(var2) {
+		var2Sign = true
+		var2 = twosComplement(var2)
+	}
+
+	if var1Sign && !var2Sign {
+		return pushToStack(big.NewInt(1), stack)
+	}
+
+	if var2Sign && !var1Sign {
+		return pushToStack(big.NewInt(0), stack)
+	}
+
+	c := var1.Cmp(var2)
+
+	// If they're both negative, swap the responses
+	// if var1Sign && var2Sign {
+	// 	if c == 1 || c == 0 {
+	// 		return pushToStack(big.NewInt(1), stack)
+	// 	} else {
+	// 		return pushToStack(big.NewInt(0), stack)
+	// 	}
+	// }
+
+	if c == 1 || c == 0 {
+		return pushToStack(big.NewInt(0), stack)
+	} else {
+		return pushToStack(big.NewInt(1), stack)
+	}
+}
+
+func Gt(code []byte, stack []*big.Int) []*big.Int {
+	var (
+		var1 *big.Int
+		var2 *big.Int
+	)
+	var1, stack = popFromStack(code, stack)
+	var2, stack = popFromStack(code, stack)
+	c := var1.Cmp(var2)
+	if c == -1 || c == 0 {
+		return pushToStack(big.NewInt(0), stack)
+	} else {
+		return pushToStack(big.NewInt(1), stack)
+	}
+}
+
+func SGt(code []byte, stack []*big.Int) []*big.Int {
+	var (
+		var1     *big.Int
+		var2     *big.Int
+		var1Sign bool // Negative true or false
+		var2Sign bool
+	)
+	var1Sign = false
+	var2Sign = false
+	var1, stack = popFromStack(code, stack)
+	var2, stack = popFromStack(code, stack)
+
+	if isNegative(var1) {
+		var1Sign = true
+		var1 = twosComplement(var1)
+	}
+
+	if isNegative(var2) {
+		var2Sign = true
+		var2 = twosComplement(var2)
+	}
+
+	if var1Sign && !var2Sign {
+		return pushToStack(big.NewInt(1), stack)
+	}
+
+	if var2Sign && !var1Sign {
+		return pushToStack(big.NewInt(0), stack)
+	}
+
+	c := var1.Cmp(var2)
+
+	// If they're both negative, swap the responses
+	if var1Sign && var2Sign {
+		if c == -1 {
+			return pushToStack(big.NewInt(1), stack)
+		} else {
+			return pushToStack(big.NewInt(0), stack)
+		}
+	}
+
+	if c == -1 || c == 0 {
+		return pushToStack(big.NewInt(0), stack)
+	} else {
+		return pushToStack(big.NewInt(1), stack)
+	}
 }
 
 func Mul(code []byte, stack []*big.Int) []*big.Int {
@@ -168,6 +300,42 @@ func SDiv(code []byte, stack []*big.Int) []*big.Int {
 		}
 		return pushToStack(var1, stack)
 	}
+}
+
+func SMod(code []byte, stack []*big.Int) []*big.Int {
+	var (
+		var1     *big.Int
+		var2     *big.Int
+		var1Sign bool
+		var2Sign bool
+	)
+	var1Sign = false
+	var2Sign = false
+	var1, stack = popFromStack(code, stack)
+	var2, stack = popFromStack(code, stack)
+
+	if isNegative(var1) {
+		var1Sign = true
+		var1 = twosComplement(var1)
+	}
+
+	if isNegative(var2) {
+		var2Sign = true
+		var2 = twosComplement(var2)
+	}
+
+	var res *big.Int
+	if var2.BitLen() == 0 {
+		res = new(big.Int).Mod(var2, var1)
+		return pushToStack(res, stack)
+	} else {
+		res = new(big.Int).Mod(var1, var2)
+	}
+
+	if var1Sign || var2Sign {
+		res = flipToNegative(res)
+	}
+	return pushToStack(res, stack)
 }
 
 func flipToNegative(v *big.Int) *big.Int {
@@ -311,6 +479,170 @@ func SignExtend(code []byte, stack []*big.Int) []*big.Int {
 	}
 }
 
+func SignExtendSingle(value *big.Int) *big.Int {
+	hold := make([]big.Word, value.BitLen())
+	copy(hold, value.Bits())
+	// binaryLength := len(value.Text(2))
+	// additionalLength := 0
+	// if binaryLength%8 != 0 {
+	// 	additionalLength = 8 - binaryLength%8
+	// }
+	// binaryString := paddedBinary(value, additionalLength)
+	// if checkFirstBit(binaryString) == 0 {
+	// 	return big.NewInt(0).SetBits(hold)
+	// } else {
+	res := padNegative(big.NewInt(0).SetBits(hold), 256)
+	x, _ := new(big.Int).SetString(res, 2)
+	return x
+	// }
+}
+
+func Eq(code []byte, stack []*big.Int) []*big.Int {
+	var (
+		var1 *big.Int
+		var2 *big.Int
+	)
+	var1, stack = popFromStack(code, stack)
+	var2, stack = popFromStack(code, stack)
+
+	c := var1.Cmp(var2)
+	if c == 0 {
+		return pushToStack(big.NewInt(1), stack)
+	} else {
+		return pushToStack(big.NewInt(0), stack)
+	}
+}
+
+func IsZero(code []byte, stack []*big.Int) []*big.Int {
+	var (
+		var1 *big.Int
+	)
+	var1, stack = popFromStack(code, stack)
+
+	c := var1.Cmp(big.NewInt(0))
+	if c == 0 {
+		return pushToStack(big.NewInt(1), stack)
+	} else {
+		return pushToStack(big.NewInt(0), stack)
+	}
+}
+
+// func Not(code []byte, stack []*big.Int) []*big.Int {
+// 	var (
+// 		var1 *big.Int
+// 	)
+// 	var1, stack = popFromStack(code, stack)
+// 	// fmt.Printf("========================\n")
+// 	// fmt.Printf("|| %d  ||\n", var1)
+// 	// fmt.Printf("========================")
+// 	// // y := floatToBigInt(math.Exp2(256))
+// 	// // var1 = y.Sub(y, var1)
+// 	// var1 = var1.Or(var1, floatToBigInt(math.Exp2(256)))
+// 	// fmt.Printf("========================\n")
+// 	// fmt.Printf("|| %d  ||\n", var1)
+// 	// fmt.Printf("========================")
+// 	// var1 = SignExtendSingle(var1)
+// 	// fmt.Printf("========================\n")
+// 	// fmt.Printf("|| %d  ||\n", var1)
+// 	// fmt.Printf("========================")
+// 	var1 = var1.Not(var1)
+
+//     // Convert the result back to a big.Int.
+//     noVar1, ok := new(big.Int).SetString(var1, 16)
+// 	return pushToStack(var1, stack)
+
+// }
+
+func Not(code []byte, stack []*big.Int) []*big.Int {
+	var (
+		var1 *big.Int
+	)
+	var1, stack = popFromStack(code, stack)
+	max := floatToBigInt(math.Exp2(256))
+	max = max.Sub(max, big.NewInt(1))
+	var1 = max.Sub(max, var1)
+
+	return pushToStack(var1, stack)
+
+}
+
+func And(code []byte, stack []*big.Int) []*big.Int {
+	var (
+		var1 *big.Int
+		var2 *big.Int
+	)
+	var1, stack = popFromStack(code, stack)
+	var2, stack = popFromStack(code, stack)
+	// max := floatToBigInt(math.Exp2(256))
+	// max = max.Sub(max, big.NewInt(1))
+	var1 = var2.And(var2, var1)
+	fmt.Printf("========================\n")
+	fmt.Printf("|| %s  || %s || \n", var1.Text(16), var2.Text(16))
+	fmt.Printf("========================")
+	return pushToStack(var1, stack)
+}
+
+func Or(code []byte, stack []*big.Int) []*big.Int {
+	var (
+		var1 *big.Int
+		var2 *big.Int
+	)
+	var1, stack = popFromStack(code, stack)
+	var2, stack = popFromStack(code, stack)
+
+	var1 = var2.Or(var2, var1)
+	return pushToStack(var1, stack)
+}
+
+func Xor(code []byte, stack []*big.Int) []*big.Int {
+	var (
+		var1 *big.Int
+		var2 *big.Int
+	)
+	var1, stack = popFromStack(code, stack)
+	var2, stack = popFromStack(code, stack)
+
+	var1 = var2.Xor(var2, var1)
+	return pushToStack(var1, stack)
+}
+
+func Shl(code []byte, stack []*big.Int) []*big.Int {
+	var (
+		var1 *big.Int
+		var2 *big.Int
+	)
+
+	var1, stack = popFromStack(code, stack)
+	var2, stack = popFromStack(code, stack)
+
+	max := floatToBigInt(math.Exp2(256))
+	max = max.Sub(max, big.NewInt(1))
+
+	// If we're pushing by more than 1024 (16 * 64) number of Fs in hex
+	if var1.Cmp(big.NewInt(1024)) == 1 {
+		return pushToStack(big.NewInt(0), stack)
+	}
+	var1 = var2.Lsh(var2, uint(var1.Int64()))
+
+	res := new(big.Int).And(var1, max)
+	fmt.Printf("========================\n")
+	fmt.Printf("|| %s \n|| %s \n|| %s || \n", var1.Text(16), res.Text(16), max.Text(16))
+	fmt.Printf("========================")
+	return pushToStack(res, stack)
+}
+
+func Shr(code []byte, stack []*big.Int) []*big.Int {
+	var (
+		var1 *big.Int
+		var2 *big.Int
+	)
+	var1, stack = popFromStack(code, stack)
+	var2, stack = popFromStack(code, stack)
+
+	var1 = var2.Rsh(var2, uint(var1.Int64()))
+	return pushToStack(var1, stack)
+}
+
 // Run runs the EVM code and returns the stack and a success indicator.
 func Evm(code []byte) ([]*big.Int, bool) {
 	var stack []*big.Int
@@ -379,6 +711,9 @@ func buildMaps() (FunctionMap, BytesMap) {
 	funcs[6] = Mod
 	bytes[6] = 0
 
+	funcs[7] = SMod
+	bytes[7] = 0
+
 	funcs[8] = AddMod
 	bytes[8] = 0
 
@@ -390,6 +725,42 @@ func buildMaps() (FunctionMap, BytesMap) {
 
 	funcs[11] = SignExtend
 	bytes[11] = 0
+
+	funcs[16] = Lt
+	bytes[16] = 0
+
+	funcs[17] = Gt
+	bytes[17] = 0
+
+	funcs[18] = SLt
+	bytes[18] = 0
+
+	funcs[19] = SGt
+	bytes[19] = 0
+
+	funcs[20] = Eq
+	bytes[20] = 0
+
+	funcs[21] = IsZero
+	bytes[21] = 0
+
+	funcs[22] = And
+	bytes[22] = 0
+
+	funcs[23] = Or
+	bytes[23] = 0
+
+	funcs[24] = Xor
+	bytes[24] = 0
+
+	funcs[25] = Not
+	bytes[25] = 0
+
+	funcs[27] = Shl
+	bytes[27] = 0
+
+	funcs[28] = Shr
+	bytes[28] = 0
 
 	return funcs, bytes
 }
