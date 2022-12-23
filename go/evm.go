@@ -415,6 +415,14 @@ func paddedBinary(x *big.Int, n int) string {
 	return s
 }
 
+// Pads a big.Int to 32 bytes (64 hex digits)
+func pad32(x *big.Int) string {
+	len := len(x.Text(16))
+	s := strings.Repeat("0", 64-len)
+	s = s + x.Text(16)
+	return s
+}
+
 func padNegative(x *big.Int, n int) string {
 	// res := fmt.Sprintf("%0*b", n, x)
 	s := strings.Repeat("1", n)
@@ -527,32 +535,6 @@ func IsZero(code []byte, stack []*big.Int) []*big.Int {
 	}
 }
 
-// func Not(code []byte, stack []*big.Int) []*big.Int {
-// 	var (
-// 		var1 *big.Int
-// 	)
-// 	var1, stack = popFromStack(code, stack)
-// 	// fmt.Printf("========================\n")
-// 	// fmt.Printf("|| %d  ||\n", var1)
-// 	// fmt.Printf("========================")
-// 	// // y := floatToBigInt(math.Exp2(256))
-// 	// // var1 = y.Sub(y, var1)
-// 	// var1 = var1.Or(var1, floatToBigInt(math.Exp2(256)))
-// 	// fmt.Printf("========================\n")
-// 	// fmt.Printf("|| %d  ||\n", var1)
-// 	// fmt.Printf("========================")
-// 	// var1 = SignExtendSingle(var1)
-// 	// fmt.Printf("========================\n")
-// 	// fmt.Printf("|| %d  ||\n", var1)
-// 	// fmt.Printf("========================")
-// 	var1 = var1.Not(var1)
-
-//     // Convert the result back to a big.Int.
-//     noVar1, ok := new(big.Int).SetString(var1, 16)
-// 	return pushToStack(var1, stack)
-
-// }
-
 func Not(code []byte, stack []*big.Int) []*big.Int {
 	var (
 		var1 *big.Int
@@ -576,9 +558,6 @@ func And(code []byte, stack []*big.Int) []*big.Int {
 	// max := floatToBigInt(math.Exp2(256))
 	// max = max.Sub(max, big.NewInt(1))
 	var1 = var2.And(var2, var1)
-	fmt.Printf("========================\n")
-	fmt.Printf("|| %s  || %s || \n", var1.Text(16), var2.Text(16))
-	fmt.Printf("========================")
 	return pushToStack(var1, stack)
 }
 
@@ -625,9 +604,6 @@ func Shl(code []byte, stack []*big.Int) []*big.Int {
 	var1 = var2.Lsh(var2, uint(var1.Int64()))
 
 	res := new(big.Int).And(var1, max)
-	fmt.Printf("========================\n")
-	fmt.Printf("|| %s \n|| %s \n|| %s || \n", var1.Text(16), res.Text(16), max.Text(16))
-	fmt.Printf("========================")
 	return pushToStack(res, stack)
 }
 
@@ -643,11 +619,133 @@ func Shr(code []byte, stack []*big.Int) []*big.Int {
 	return pushToStack(var1, stack)
 }
 
+func FillOnes(v *big.Int, bits int) *big.Int {
+	max := floatToBigInt(math.Exp2(256))
+	max = max.Sub(max, big.NewInt(1))
+	add := max.Lsh(max, 256-uint(bits))
+	add = overflow(add)
+	return v.Or(add, v)
+}
+
+func Sar(code []byte, stack []*big.Int) []*big.Int {
+	max := floatToBigInt(math.Exp2(256))
+	max = max.Sub(max, big.NewInt(1))
+	var (
+		shiftAmt *big.Int
+		base     *big.Int
+	)
+	shiftAmt, stack = popFromStack(code, stack)
+	base, stack = popFromStack(code, stack)
+
+	// If we're pushing by more than 1024 (16 * 64) number of Fs in hex
+	if shiftAmt.Cmp(big.NewInt(1024)) == 1 {
+		fmt.Printf("========================\n")
+		fmt.Printf("|| %s \n|| %d \n|| %s  \n", shiftAmt.Text(16), base.Bit(256), max.Text(16))
+		fmt.Printf("========================")
+		// If the highest bit is a 1, push all 1s
+		if base.Bit(255) == 1 {
+			return pushToStack(max, stack)
+			// If it is a 0, push 0
+		} else {
+			return pushToStack(big.NewInt(0), stack)
+		}
+	}
+	var res *big.Int
+	if isNegative(base) {
+		base.Rsh(base, uint(shiftAmt.Int64()))
+		res = FillOnes(base, int(shiftAmt.Int64()))
+	} else {
+		res = base.Rsh(base, uint(shiftAmt.Int64()))
+	}
+	return pushToStack(res, stack)
+}
+
+func Byte(code []byte, stack []*big.Int) []*big.Int {
+	var (
+		byteValue *big.Int
+		number    *big.Int
+	)
+	// Byte is 2x 1 Hex value: aka FF is one byte
+	byteValue, stack = popFromStack(code, stack)
+	// So 30th Byte is really 60th value in the hex string
+	byteValue = byteValue.Mul(byteValue, big.NewInt(2))
+	number, stack = popFromStack(code, stack)
+	numberString := pad32(number)
+
+	// If byte value is bigger than 64 (32 bytes) push 0
+	if byteValue.Cmp(big.NewInt(64)) == 1 {
+		return pushToStack(big.NewInt(0), stack)
+	}
+
+	// Set res to the numberString
+	res := numberString
+
+	// Clip number string by the byte value -> + 2 because we are looking at 2 hex values
+	res = res[byteValue.Int64() : byteValue.Int64()+2]
+	ret, _ := big.NewInt(0).SetString("0x"+res, 0)
+	return pushToStack(ret, stack)
+}
+
+func Dup(val *big.Int, stack []*big.Int) []*big.Int {
+	// Make a new stack with len of original stack
+	n := make([]*big.Int, len(stack))
+	// Copy old stack to new stack
+	copy(n, stack)
+	// Set new big int value to a new stack, merge with old stack
+	n = append([]*big.Int{val}, stack...)
+	// return new stack
+	return n
+}
+
+// func Swap(val int, stack []*big.Int) []*big.Int {
+// 	// [1 2 3]
+// 	// [1 3 2]
+// 	// Make a new stack with len of original stack
+// 	n := make([]*big.Int, len(stack))
+// 	// Copy old stack to new stack
+// 	copy(n, stack)
+// 	// Set new big int value to a new stack, merge with old stack
+// 	n = append([]*big.Int{val}, stack...)
+// 	// return new stack
+// 	return n
+// }
+
+func Swap(index int, stack []*big.Int) []*big.Int {
+
+	var (
+		top  *big.Int
+		swap *big.Int
+		n    []*big.Int
+	)
+
+	// Check if the index is within the bounds of the stack
+	if index < 0 || index >= len(stack) {
+		return stack
+	}
+
+	top = stack[0]
+	swap = stack[index]
+
+	// new stack
+	for i := 0; i < len(stack); i++ {
+		if i == 0 {
+			n = append(n, swap)
+		} else if i == index {
+			n = append(n, top)
+		} else {
+			n = append(n, stack[i])
+		}
+	}
+	return n
+}
+
 // Run runs the EVM code and returns the stack and a success indicator.
 func Evm(code []byte) ([]*big.Int, bool) {
 	var stack []*big.Int
 	var remainder []byte
 	funcs, bytes = buildMaps()
+	overallpc := 0
+	var memory []*big.Int
 
 Opcode:
 	pc := 0
@@ -657,20 +755,52 @@ Opcode:
 		goto Done
 	}
 
-	// PUSH1 - PUSH32
-	if 96 <= op && op <= 127 {
+	if op == 0xfe {
+		// Invalid opcode
+		return nil, false
+	}
 
+	if op == 0x58 {
+		fmt.Printf("========================\n")
+		fmt.Printf("%d || %d || %d \n", overallpc, op, stack)
+		fmt.Printf("========================\n")
+		// PC
+
+		remainder = code[1:]
+		stack = pushToStack(big.NewInt(int64(overallpc)), stack)
+	} else if op == 0x5a {
+		max := floatToBigInt(math.Exp2(256))
+		max = max.Sub(max, big.NewInt(1))
+		remainder = code[1:]
+		stack = pushToStack(max, stack)
+	} else if 96 <= op && op <= 127 {
+		// PUSH1 - PUSH32
 		size := int(op) - 96 + 1
 		val := code[pc+1 : pc+1+int(size)]
 		remainder = code[pc+1+int(size):]
 		stack = Push(val, stack)
+		overallpc += 2
+	} else if 128 <= op && op <= 143 {
+		// DUP1 - DUP16
+		index := int(op) - 128
+		// size := int(op) - 96 + 1
+		val := stack[index]
+		remainder = code[pc+1:]
+		stack = Dup(val, stack)
+	} else if 144 <= op && op <= 159 {
+		// DUP1 - DUP16
+		index := int(op) - 144
+		// size := int(op) - 96 + 1
+		remainder = code[pc+1:]
+		stack = Swap(index+1, stack)
+
 	} else {
 		size := bytes[op]
 		val := code[pc+1 : pc+1+int(size)]
 		remainder = code[pc+1+int(size):]
 		stack = funcs[op](val, stack)
+		overallpc += 1
 	}
-
 	if len(remainder) > 0 {
 		code = remainder
 		goto Opcode
@@ -756,11 +886,17 @@ func buildMaps() (FunctionMap, BytesMap) {
 	funcs[25] = Not
 	bytes[25] = 0
 
+	funcs[26] = Byte
+	bytes[26] = 0
+
 	funcs[27] = Shl
 	bytes[27] = 0
 
 	funcs[28] = Shr
 	bytes[28] = 0
+
+	funcs[29] = Sar
+	bytes[29] = 0
 
 	return funcs, bytes
 }
